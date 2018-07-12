@@ -1,7 +1,9 @@
 ﻿using System;
 using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Text;
+using System.Threading.Tasks;
 using NsqSharp.Core;
 
 namespace NsqSharp.Api
@@ -170,7 +172,51 @@ namespace NsqSharp.Api
         {
             string endpoint = GetFullUrl(route);
             var bytes = Request(endpoint, HttpMethod.Get, _timeoutMilliseconds);
+            if(bytes == null){
+                return string.Empty;
+            }
             return Encoding.UTF8.GetString(bytes);
+        }
+
+        protected  static byte[] Request(string endpoint, HttpMethod httpMethod, int timeoutMilliseconds, byte[] body = null)
+        {
+            byte[] result = null;
+            using (HttpClient http = new HttpClient())
+            {
+                http.DefaultRequestHeaders.Add("Accept", @"application/vnd.nsq; version=1.0");
+                HttpResponseMessage message = null;
+                if (httpMethod == HttpMethod.Post)
+                {
+                    using (Stream dataStream = new MemoryStream(body ?? new byte[0]))
+                    {
+                        using (HttpContent content = new StreamContent(dataStream))
+                        {
+                            content.Headers.Add("Content-Type", "application/x-www-form-urlencoded");
+                            message =  http.PostAsync(endpoint, content).Result;
+                        }
+                    }
+                }
+                else if (httpMethod == HttpMethod.Get)
+                {
+                    message =  http.GetAsync(endpoint).Result;
+                }
+                if (message != null && message.StatusCode == System.Net.HttpStatusCode.OK)
+                {
+                    using (message)
+                    {
+                        using (Stream responseStream =  message.Content.ReadAsStreamAsync().Result)
+                        {
+                            if (responseStream != null)
+                            {
+                                byte[] responseData = new byte[responseStream.Length];
+                                responseStream.Read(responseData, 0, responseData.Length);
+                                result = responseData;
+                            }
+                        }
+                    }
+                }
+            }
+            return result;
         }
 
         /// <summary>Initiates and HTTP request to the specified <paramref name="endpoint"/>.</summary>
@@ -180,60 +226,89 @@ namespace NsqSharp.Api
         /// <param name="timeoutMilliseconds">The timeout in milliseconds.</param>
         /// <param name="body">The body.</param>
         /// <returns>The response from the server.</returns>
-        protected static byte[] Request(string endpoint, HttpMethod httpMethod, int timeoutMilliseconds, byte[] body = null)
-        {
-            var webRequest = (HttpWebRequest)WebRequest.Create(endpoint);
-            webRequest.Proxy = WebRequest.DefaultWebProxy;
-            webRequest.Method = httpMethod == HttpMethod.Post ? "POST" : "GET";
-            webRequest.Timeout = timeoutMilliseconds;
-            webRequest.Accept = "application/vnd.nsq; version=1.0";
-            webRequest.UserAgent = string.Format("{0}/{1}", ClientInfo.ClientName, ClientInfo.Version);
+        // protected static byte[] Request(string endpoint, HttpMethod httpMethod, int timeoutMilliseconds, byte[] body = null)
+        // {
+        //     using (HttpClient httpClient = new HttpClient())
+        //     {
+        //         httpClient.Timeout = TimeSpan.FromMilliseconds(timeoutMilliseconds);
+        //         httpClient.a = "";
+        //     }
+        //     var webRequest = (HttpWebRequest)WebRequest.Create(endpoint);
+        //     try
+        //     {
+        //         webRequest.Proxy = WebRequest.DefaultWebProxy;
+        //         webRequest.Method = httpMethod == HttpMethod.Post ? "POST" : "GET";
+        //         webRequest.Timeout = timeoutMilliseconds;
+        //         webRequest.Accept = "application/vnd.nsq; version=1.0";
+        //         webRequest.UserAgent = string.Format("{0}/{1}", ClientInfo.ClientName, ClientInfo.Version);
 
-            if (httpMethod == HttpMethod.Post && body != null && body.Length != 0)
-            {
-                webRequest.ContentType = "application/x-www-form-urlencoded";
-                webRequest.ContentLength = body.Length;
+        //         if (httpMethod == HttpMethod.Post && body != null && body.Length != 0)
+        //         {
+        //             webRequest.ContentType = "application/x-www-form-urlencoded";
+        //             webRequest.ContentLength = body.Length;
 
-                using (var request = webRequest.GetRequestStream())
-                {
-                    request.Write(body, 0, body.Length);
-                }
-            }
+        //             using (var request = webRequest.GetRequestStream())
+        //             {
+        //                 request.Write(body, 0, body.Length);
+        //             }
+        //         }
 
-            using (var httpResponse = (HttpWebResponse)webRequest.GetResponse())
-            using (var responseStream = httpResponse.GetResponseStream())
-            {
-                if (responseStream == null)
-                    throw new Exception("responseStream is null");
+        //         using (var httpResponse = (HttpWebResponse)webRequest.GetResponse())
+        //         using (var responseStream = httpResponse.GetResponseStream())
+        //         {
+        //             if (responseStream == null)
+        //                 throw new Exception("responseStream is null");
 
-                int contentLength = (int)httpResponse.ContentLength;
-                byte[] responseBytes;
+        //             int contentLength = (int)httpResponse.ContentLength;
+        //             byte[] responseBytes;
 
-                var buf = new byte[256];
-                using (MemoryStream memoryStream = new MemoryStream())
-                {
-                    int bytesRead;
-                    do
-                    {
-                        bytesRead = responseStream.Read(buf, 0, 256);
-                        memoryStream.Write(buf, 0, bytesRead);
-                    } while (bytesRead > 0);
+        //             var buf = new byte[256];
+        //             using (MemoryStream memoryStream = new MemoryStream())
+        //             {
+        //                 int bytesRead;
+        //                 do
+        //                 {
+        //                     bytesRead = responseStream.Read(buf, 0, 256);
+        //                     memoryStream.Write(buf, 0, bytesRead);
+        //                 } while (bytesRead > 0);
 
-                    responseBytes = memoryStream.ToArray();
-                }
+        //                 responseBytes = memoryStream.ToArray();
+        //             }
 
-                if (responseBytes.Length < contentLength)
-                    throw new Exception(string.Format("premature end of response stream {0}", endpoint));
+        //             if (responseBytes.Length < contentLength)
+        //                 throw new Exception(string.Format("premature end of response stream {0}", endpoint));
 
-                if (httpResponse.StatusCode != HttpStatusCode.OK)
-                {
-                    throw new Exception(string.Format("got response {0} {1} {2}",
-                        httpResponse.StatusDescription, endpoint, Encoding.UTF8.GetString(responseBytes)));
-                }
+        //             if (httpResponse.StatusCode != HttpStatusCode.OK)
+        //             {
+        //                 throw new Exception(string.Format("got response {0} {1} {2}",
+        //                     httpResponse.StatusDescription, endpoint, Encoding.UTF8.GetString(responseBytes)));
+        //             }
 
-                return responseBytes;
-            }
-        }
+        //             return responseBytes;
+        //         }
+        //     }
+        //     catch (Exception ex)
+        //     {
+        //         if (webRequest != null)
+        //         {
+        //             webRequest.Abort();
+        //         }
+
+        //         System.Console.WriteLine(ex.Message);
+        //         throw ex;
+
+        //     }
+        //     finally
+        //     {
+        //         if (webRequest != null)
+        //         {
+        //             webRequest.Abort();
+        //         }
+        //     }
+
+
+
+        // }
     }
 
     /// <summary>Values that represent HTTP methods.</summary>

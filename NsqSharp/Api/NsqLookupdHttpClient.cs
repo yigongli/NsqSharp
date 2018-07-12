@@ -26,7 +26,10 @@ namespace NsqSharp.Api
             ValidateTopic(topic);
 
             var json = Get(string.Format("/lookup?topic={0}", topic));
-
+            if(string.IsNullOrEmpty(json))
+            {
+                return null;
+            }
             var serializer = new DataContractJsonSerializer(typeof(NsqLookupdLookupResponse));
             using (var memoryStream = new MemoryStream(Encoding.UTF8.GetBytes(json)))
             {

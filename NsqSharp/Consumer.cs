@@ -595,11 +595,17 @@ namespace NsqSharp
             if (timeoutMilliseconds < 2000)
                 timeoutMilliseconds = 2000;
 
-            TopicProducerInformation[] producers;
+            TopicProducerInformation[] producers = null;
             try
             {
                 var nsqLookupdClient = new NsqLookupdHttpClient(endpoint, TimeSpan.FromMilliseconds(timeoutMilliseconds));
-                producers = nsqLookupdClient.Lookup(_topic).Producers;
+                var lookUpResponse = nsqLookupdClient.Lookup(_topic);
+                if (lookUpResponse == null)
+                {
+                    log(LogLevel.Warning, string.Format("404 querying nsqlookupd ({0}) for topic {1}", endpoint, _topic));
+                    return;
+                }
+                producers = lookUpResponse.Producers;
             }
             catch (Exception ex)
             {
@@ -609,7 +615,7 @@ namespace NsqSharp
                     var httpWebResponse = webException.Response as HttpWebResponse;
                     if (httpWebResponse != null && httpWebResponse.StatusCode == HttpStatusCode.NotFound)
                     {
-                        log(LogLevel.Warning, string.Format("404 querying nsqlookupd ({0}) for topic {1}", endpoint, _topic));
+
                         if (endpoint.Contains(":4151"))
                         {
                             log(LogLevel.Error, string.Format("404 querying nsqlookupd ({0}) - *** {1} ***  - {2}",
